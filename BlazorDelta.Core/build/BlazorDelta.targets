@@ -1,0 +1,11 @@
+﻿<Project>
+
+	<ItemGroup Condition="'$(DesignTimeBuild)' != 'true'">
+		<Analyzer Include="$(MSBuildThisFileDirectory)../analyzers/dotnet/cs/BlazorDelta.Core.dll" />
+	</ItemGroup>
+
+	<Target Name="BlazorDeltaInfo" BeforeTargets="Build">
+		<Message Text="BlazorDelta v$(BlazorDeltaVersion) - High-performance Blazor components active" Importance="normal" />
+	</Target>
+
+</Project>

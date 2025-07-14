@@ -1,0 +1,71 @@
+﻿@using BlazorDelta.Abstractions
+@using BlazorDelta.Attributes
+@using BlazorDelta.Sample.Components.Enums
+
+@inherits ComponentBase
+
+<button class="@GetCssClass()" type="@_btnType" @onclick="OnClick">
+	@if (ChildContent is null)
+	{
+		<span>
+			@Text
+		</span>
+		@if (!string.IsNullOrEmpty(Icon))
+		{
+			<span class="icon">
+				@Icon
+			</span>
+		}
+	}
+	else
+	{
+		@ChildContent
+	}
+</button>
+
+@code {
+
+
+	[Parameter]
+	public string? Text { get; set; }
+
+	[Parameter]
+	public string? Icon { get; set; }
+
+	[Parameter, UpdatesCss]
+	public ButtonColor Color { get; set; } = ButtonColor.Primary;
+
+	[Parameter, UpdatesCss]
+	public ButtonStyle Style { get; set; } = ButtonStyle.Filled;
+
+	[Parameter]
+	public ButtonSize Size { get; set; } = ButtonSize.Medium;
+
+	[Parameter]
+	public EventCallback OnClick { get; set; }
+
+	[Parameter, UpdatesCss]
+	public bool Disabled { get; set; }
+
+	[Parameter, SetOnce]
+	public ButtonType Type { get; set; } = ButtonType.Button;
+
+	[Parameter(CaptureUnmatchedValues = true)]
+	public IReadOnlyDictionary<string, object?>? Attributes { get; set; }
+
+	[Parameter]
+	public RenderFragment? ChildContent { get; set; }
+
+	private string? _btnType = "button";
+
+	protected override void OnInitialized()
+	{
+		_btnType = Type.ToValue();
+	}
+
+
+
+	private string GetCssClass()
+		=> $"{Size.ToCss()} btn{Style.ToCss()}{Color.ToCss()}";
+
+}

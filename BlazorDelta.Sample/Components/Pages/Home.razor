@@ -1,0 +1,124 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@using BlazorDelta.Sample.Components.Enums
+@using BlazorDelta.Sample.Components.UI
+
+<PageTitle>Home</PageTitle>
+
+<h1>Hello, world!</h1>
+
+
+
+<div class="container-fluid">
+	<div class="max-width: 600px;">
+
+	<div class="row">
+
+		<div class="col-6">
+			<div class="form-label">
+				Button Text:
+			</div>
+			<InputText class="form-control" @bind-Value="_btnText"></InputText>
+		</div>
+		<div class="col-4">
+
+			<div class="form-label">
+				Function:
+			</div>
+			<InputSelect class="form-select" @bind-Value="_derp" @bind-Value:after="SetCurrentButtonFunction">
+				<option value="0">Print Text Console</option>
+				<option value="1">Toggle Hidden Content</option>
+			</InputSelect>
+		</div>
+	</div>
+
+	<div class="row">
+
+		<div class="col-4">
+			<div class="form-label">
+				Color:
+			</div>
+			<InputSelect class="form-select" @bind-Value="Color">
+				@foreach (var c in Enum.GetValues<ButtonColor>())
+				{
+					<option value="@c">@c.ToString()</option>
+				}
+			</InputSelect>
+		</div>
+		<div class="col-4">
+			<div class="form-label">
+				Size:
+			</div>
+
+			<InputSelect class="form-select" @bind-Value="Size">
+				@foreach (var c in Enum.GetValues<ButtonSize>())
+				{
+					<option value="@c">@c.ToString()</option>
+				}
+			</InputSelect>
+		</div>
+
+		<div class="col-4">
+			<div class="form-label">
+				Style:
+			</div>
+			<InputSelect class="form-select" @bind-Value="Style">
+				@foreach (var c in Enum.GetValues<ButtonStyle>())
+				{
+					<option value="@c">@c.ToString()</option>
+				}
+			</InputSelect>
+		</div>
+	</div>
+	</div>
+</div>
+
+
+<BBButton Color="Color" Size="Size" Style="Style" Text="@_btnText" OnClick="_currentButtonAction"></BBButton>
+
+@if (_showHidden)
+{
+	<b>THIS IS HIDDEN </b>
+}
+
+
+@code {
+
+	private ButtonColor Color = ButtonColor.Primary;
+	private ButtonSize Size = ButtonSize.Medium;
+	private ButtonStyle Style = ButtonStyle.Filled;
+
+	private int _derp = 0;
+
+	private string _btnText = "This is a button";
+
+	private Action _currentButtonAction = null!;
+
+	bool _showHidden = false;
+
+	void PrintText() => Console.WriteLine(_btnText);
+	void ShowHiddenText() => _showHidden = !_showHidden;
+
+	private void Fisk()
+	{
+		_btnText = "Fisk";
+	}
+
+	private void SetCurrentButtonFunction()
+	{
+		_currentButtonAction = _derp switch
+		{
+			0 => PrintText,
+			1 => ShowHiddenText,
+			_ => Fisk
+
+		};
+	}
+
+	protected override void OnInitialized()
+	{
+		_currentButtonAction = Fisk;
+	}
+
+
+}

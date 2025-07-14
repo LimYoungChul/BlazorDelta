@@ -1,0 +1,79 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<TargetFramework>net9.0</TargetFramework>
+		<IncludeBuildOutput>false</IncludeBuildOutput>
+		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+
+		<!-- Basic Package Metadata -->
+		<PackageId>BlazorDelta</PackageId>
+		<PackageVersion>1.0.0</PackageVersion>
+		<Authors>Lim Young-chul</Authors>
+		<Product>BlazorDelta</Product>
+		<Summary>Source generator for optimized Blazor Delta components</Summary>
+		<PackageTags>blazor;source-generator;delta;performance;components;optimization</PackageTags>
+		<Copyright>Copyright © 2025 Your Name</Copyright>
+		<Description>Source generator that provides up to 4x faster parameter assignment for Blazor components with automatic CSS optimization, parameter change handlers, and zero-allocation performance.</Description>
+		<PackageProjectUrl>https://github.com/yourusername/BlazorDelta</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/yourusername/BlazorDelta</RepositoryUrl>
+		<RepositoryType>git</RepositoryType>
+		<PackageLicense>MIT</PackageLicense>
+		<PackageIcon>LimYoungChul.png</PackageIcon>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<PackageReleaseNotes>
+			v1.0.0:
+			- 3-4x faster parameter assignment than ComponentBase
+			- Automatic CSS optimization with [UpdatesCss] attribute
+			- Parameter change handlers with [OnParameterChanged] attribute
+			- Support for SetOnce parameters, NoRender parameters
+			- Full support for CaptureUnmatchedValues, CascadingParameters
+			- Zero allocation for most scenarios, 464B → 0B for attribute splatting
+		</PackageReleaseNotes>
+
+
+		<!-- Additional Metadata -->
+		<PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+		<DevelopmentDependency>false</DevelopmentDependency>
+		<IncludeSymbols>true</IncludeSymbols>
+		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
+	</PropertyGroup>
+
+	<!-- Include package assets -->
+	<ItemGroup>
+		<None Include="README.md" Pack="true" PackagePath="/" />
+		<None Include="LimYoungChul.png" Pack="true" PackagePath="/" />
+		<!-- <None Include="LICENSE.txt" Pack="true" PackagePath="/" /> -->
+	</ItemGroup>
+
+	<!-- Runtime dependency - users need this at runtime -->
+	<ItemGroup>
+		<ProjectReference Include="../BlazorDelta.Abstractions/BlazorDelta.Abstractions.csproj" />
+	</ItemGroup>
+	<!-- Source generator dependencies - these will be built first -->
+	<ItemGroup>
+		<ProjectReference Include="../BlazorDelta.Core/BlazorDelta.Core.csproj"
+						  ReferenceOutputAssembly="false"
+						  OutputItemType="Analyzer"
+						  PrivateAssets="all" />
+		<ProjectReference Include="../BlazorDelta.Attributes/BlazorDelta.Attributes.csproj"
+						  ReferenceOutputAssembly="false"
+						  OutputItemType="Analyzer"
+						  PrivateAssets="all" />
+	</ItemGroup>
+
+	<!-- Custom target to include generator files in package -->
+	<Target Name="IncludeAnalyzers" BeforeTargets="GetTargetPath" DependsOnTargets="ResolveProjectReferences">
+		<ItemGroup>
+			<!-- Include the source generator -->
+			<None Include="@(ReferencePath)" Condition="'%(ReferencePath.MSBuildSourceProjectFile)' != '' AND '%(ReferencePath.Filename)' == 'BlazorDelta.Core'">
+				<Pack>true</Pack>
+				<PackagePath>analyzers/dotnet/cs/BlazorDelta.Core.dll</PackagePath>
+			</None>
+
+			<!-- Include the attributes -->
+			<None Include="@(ReferencePath)" Condition="'%(ReferencePath.MSBuildSourceProjectFile)' != '' AND '%(ReferencePath.Filename)' == 'BlazorDelta.Attributes'">
+				<Pack>true</Pack>
+				<PackagePath>analyzers/dotnet/cs/BlazorDelta.Attributes.dll</PackagePath>
+			</None>
+		</ItemGroup>
+	</Target>
+</Project>

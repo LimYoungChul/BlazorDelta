@@ -1,0 +1,9 @@
+<Project>
+	<ItemGroup>
+		<AdditionalFiles Include="**/*.razor" />
+	</ItemGroup>
+
+	<PropertyGroup>
+		<BlazorDeltaVersion>1.0.0</BlazorDeltaVersion>
+	</PropertyGroup>
+</Project>

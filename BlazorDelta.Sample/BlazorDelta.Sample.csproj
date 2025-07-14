@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+	<PropertyGroup>
+		<TargetFramework>net9.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.AspNetCore.Components.QuickGrid" Version="9.0.0" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\BlazorDelta.Abstractions\BlazorDelta.Abstractions.csproj" />
+		<ProjectReference Include="..\BlazorDelta.Attributes\BlazorDelta.Attributes.csproj" />
+		<ProjectReference Include="..\BlazorDelta.Core\BlazorDelta.Core.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+	</ItemGroup>
+
+</Project>
