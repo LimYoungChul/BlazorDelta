@@ -1,0 +1,99 @@
+﻿<Project>
+	<!-- BlazorDelta MSBuild integration -->
+	<PropertyGroup>
+		<BlazorDeltaBindingsFile>$(IntermediateOutputPath)BlazorDelta.bindings.json</BlazorDeltaBindingsFile>
+	</PropertyGroup>
+
+	<!-- Define the task -->
+	<UsingTask TaskName="BlazorDelta.Build.ExtractBlazorBindings"
+			   AssemblyFile="$(MSBuildThisFileDirectory)../bin/Debug/netstandard2.0/BlazorDelta.Build.dll" />
+
+	<!-- ADD FIX 2: Test if task loads -->
+	<Target Name="TestTaskLoading" BeforeTargets="ExtractBlazorBindings">
+		<Message Text="Testing if BlazorDelta task can be loaded..." Importance="high" />
+		<Message Text="Task DLL should be at: $(MSBuildThisFileDirectory)../bin/Debug/netstandard2.0/BlazorDelta.Build.dll" Importance="high" />
+	</Target>
+
+	<!-- ADD FIX 3: Force extraction test - ADD THIS ENTIRE TARGET -->
+	<Target Name="ForceExtractBlazorBindings" BeforeTargets="CoreCompile">
+		<Message Text="=== FORCE EXTRACT TEST ===" Importance="high" />
+		<Message Text="RazorComponent files: @(RazorComponent)" Importance="high" />
+
+		<ExtractBlazorBindings RazorFiles="@(RazorComponent)"
+							  OutputFile="$(IntermediateOutputPath)BlazorDelta.bindings.json" />
+
+		<ItemGroup Condition="Exists('$(IntermediateOutputPath)BlazorDelta.bindings.json')">
+			<AdditionalFiles Include="$(IntermediateOutputPath)BlazorDelta.bindings.json" />
+		</ItemGroup>
+	</Target>
+
+	<!-- ORIGINAL TARGET (FIX 1: removed Inputs/Outputs) -->
+	<Target Name="ExtractBlazorBindings"
+			BeforeTargets="CoreCompile">
+
+		<PropertyGroup>
+			<BlazorDeltaHasRazorFiles>false</BlazorDeltaHasRazorFiles>
+		</PropertyGroup>
+
+		<!-- Check if we have any Razor files to process -->
+		<ItemGroup Condition="'@(Component)' != '' OR '@(RazorComponent)' != ''">
+			<BlazorDeltaRazorFiles Include="@(Component)" />
+			<BlazorDeltaRazorFiles Include="@(RazorComponent)" />
+		</ItemGroup>
+
+		<PropertyGroup Condition="'@(BlazorDeltaRazorFiles)' != ''">
+			<BlazorDeltaHasRazorFiles>true</BlazorDeltaHasRazorFiles>
+		</PropertyGroup>
+
+		<!-- Only run if we have Razor files -->
+		<ExtractBlazorBindings Condition="$(BlazorDeltaHasRazorFiles)"
+							  RazorFiles="@(BlazorDeltaRazorFiles)"
+							  OutputFile="$(BlazorDeltaBindingsFile)" />
+
+		<!-- Create empty file if no Razor files (to satisfy Outputs) -->
+		<WriteLinesToFile Condition="!$(BlazorDeltaHasRazorFiles)"
+						  File="$(BlazorDeltaBindingsFile)"
+						  Lines="{}"
+						  Overwrite="true" />
+
+		<!-- Add the generated file to AdditionalFiles for the source generator -->
+		<ItemGroup Condition="Exists('$(BlazorDeltaBindingsFile)')">
+			<AdditionalFiles Include="$(BlazorDeltaBindingsFile)" />
+		</ItemGroup>
+
+		<Message Text="BlazorDelta: Extracted binding patterns to $(BlazorDeltaBindingsFile)"
+				 Importance="low" />
+	</Target>
+
+	<!-- Clean up the binding file during clean -->
+	<Target Name="CleanBlazorBindings" AfterTargets="Clean">
+		<Delete Files="$(BlazorDeltaBindingsFile)" />
+	</Target>
+
+	<!-- Alternative target for projects that might use different item types -->
+	<Target Name="ExtractBlazorBindingsFromContent"
+			BeforeTargets="ExtractBlazorBindings"
+			Condition="'@(BlazorDeltaRazorFiles)' == '' AND '@(Content)' != ''">
+
+		<ItemGroup>
+			<BlazorDeltaRazorFilesFromContent Include="@(Content)"
+											 Condition="'%(Extension)' == '.razor'" />
+		</ItemGroup>
+
+		<ItemGroup Condition="'@(BlazorDeltaRazorFilesFromContent)' != ''">
+			<BlazorDeltaRazorFiles Include="@(BlazorDeltaRazorFilesFromContent)" />
+		</ItemGroup>
+	</Target>
+
+	<!-- Diagnostic target to help debug MSBuild integration -->
+	<Target Name="DiagnoseBlazorDelta" Condition="$(BlazorDeltaDiagnostics) == 'true'">
+		<Message Text="BlazorDelta Diagnostics:" Importance="high" />
+		<Message Text="  IntermediateOutputPath: $(IntermediateOutputPath)" Importance="high" />
+		<Message Text="  BlazorDeltaBindingsFile: $(BlazorDeltaBindingsFile)" Importance="high" />
+		<Message Text="  Component files: @(Component)" Importance="high" />
+		<Message Text="  RazorComponent files: @(RazorComponent)" Importance="high" />
+		<Message Text="  Content files (*.razor): @(Content)" Importance="high"
+				 Condition="'%(Content.Extension)' == '.razor'" />
+		<Message Text="  AdditionalFiles: @(AdditionalFiles)" Importance="high" />
+	</Target>
+</Project>

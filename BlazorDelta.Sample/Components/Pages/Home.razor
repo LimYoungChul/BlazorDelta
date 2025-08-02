@@ -18,7 +18,7 @@
 			<div class="form-label">
 				Button Text:
 			</div>
-			<InputText class="form-control" @bind-Value="_btnText"></InputText>
+			<InputText class="form-control" @bind-Value="_btnText" @bind-Value:event="oninput"></InputText>
 		</div>
 		<div class="col-4">
 
@@ -115,10 +115,42 @@
 		};
 	}
 
+	int? yikes = null;
 	protected override void OnInitialized()
 	{
 		_currentButtonAction = Fisk;
+		if (!OperatingSystem.IsBrowser())
+		{
+			Console.ForegroundColor = ConsoleColor.Green;
+		}
+
+		Console.WriteLine("-------TESTSTART-------");
+		yikes = null;
+		int? arg = 0;
+		int notNullArg = 0;
+		MyPatternMatcher(arg); //should match and assign 0 to yikes;
+		notNullArg = 20;
+		yikes = 20;
+		MyPatternMatcher(notNullArg); // should do nothing;
+		arg = null;
+		yikes = 20;
+		MyPatternMatcher(arg);
+		//according to what you stated, null should not be applied to yikes here?
+		//but that is indeed what we want, so maybe pattern matching is inferior to casting approach?
+
+		Console.WriteLine("-------TESTEND-------");
 	}
 
+
+
+	private void MyPatternMatcher(object? a)
+	{
+		if(a is int i && i != yikes)
+		{
+			yikes = i;
+			Console.WriteLine($"I was matched and applied! Yikes is now: {yikes?.ToString() ?? "NULL"}");
+		}
+
+	}
 
 }

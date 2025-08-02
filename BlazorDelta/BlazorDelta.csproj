@@ -6,74 +6,61 @@
 
 		<!-- Basic Package Metadata -->
 		<PackageId>BlazorDelta</PackageId>
-		<PackageVersion>1.0.0</PackageVersion>
+		<PackageVersion>0.1.0</PackageVersion>
 		<Authors>Lim Young-chul</Authors>
 		<Product>BlazorDelta</Product>
 		<Summary>Source generator for optimized Blazor Delta components</Summary>
 		<PackageTags>blazor;source-generator;delta;performance;components;optimization</PackageTags>
-		<Copyright>Copyright © 2025 Your Name</Copyright>
+		<Copyright>Copyright © 2025 Lim Young-chul</Copyright>
 		<Description>Source generator that provides up to 4x faster parameter assignment for Blazor components with automatic CSS optimization, parameter change handlers, and zero-allocation performance.</Description>
 		<PackageProjectUrl>https://github.com/yourusername/BlazorDelta</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/yourusername/BlazorDelta</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
-		<PackageLicense>MIT</PackageLicense>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageIcon>LimYoungChul.png</PackageIcon>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<PackageReleaseNotes>
-			v1.0.0:
+			v0.1.0:
+			- Initial pre-release of BlazorDelta source generator
 			- 3-4x faster parameter assignment than ComponentBase
 			- Automatic CSS optimization with [UpdatesCss] attribute
 			- Parameter change handlers with [OnParameterChanged] attribute
 			- Support for SetOnce parameters, NoRender parameters
 			- Full support for CaptureUnmatchedValues, CascadingParameters
 			- Zero allocation for most scenarios, 464B → 0B for attribute splatting
+			- Note: API may change before 1.0.0 release
 		</PackageReleaseNotes>
-
-
-		<!-- Additional Metadata -->
-		<PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
-		<DevelopmentDependency>false</DevelopmentDependency>
-		<IncludeSymbols>true</IncludeSymbols>
-		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
 	</PropertyGroup>
+	<ItemGroup>
+	  <Compile Include="..\BlazorDelta.Sample\Components\FormComponents\Foo.razor.cs" Link="Foo.razor.cs" />
+	</ItemGroup>
 
 	<!-- Include package assets -->
 	<ItemGroup>
 		<None Include="README.md" Pack="true" PackagePath="/" />
 		<None Include="LimYoungChul.png" Pack="true" PackagePath="/" />
-		<!-- <None Include="LICENSE.txt" Pack="true" PackagePath="/" /> -->
 	</ItemGroup>
 
-	<!-- Runtime dependency - users need this at runtime -->
+	<!-- Runtime assemblies - what users reference -->
 	<ItemGroup>
-		<ProjectReference Include="../BlazorDelta.Abstractions/BlazorDelta.Abstractions.csproj" />
+		<None Include="../BlazorDelta.Abstractions/bin/Release/net9.0/BlazorDelta.Abstractions.dll" Pack="true" PackagePath="lib/net9.0/BlazorDelta.Abstractions.dll" />
+		<!-- IMPORTANT: Attributes also go in lib so users can reference them -->
+		<None Include="../BlazorDelta.Attributes/bin/Release/netstandard2.0/BlazorDelta.Attributes.dll" Pack="true" PackagePath="lib/net9.0/BlazorDelta.Attributes.dll" />
 	</ItemGroup>
-	<!-- Source generator dependencies - these will be built first -->
+
+	<!-- Source generator assemblies - for compile-time generation -->
 	<ItemGroup>
-		<ProjectReference Include="../BlazorDelta.Core/BlazorDelta.Core.csproj"
-						  ReferenceOutputAssembly="false"
-						  OutputItemType="Analyzer"
-						  PrivateAssets="all" />
-		<ProjectReference Include="../BlazorDelta.Attributes/BlazorDelta.Attributes.csproj"
-						  ReferenceOutputAssembly="false"
-						  OutputItemType="Analyzer"
-						  PrivateAssets="all" />
+		<None Include="../BlazorDelta.Core/bin/Release/netstandard2.0/BlazorDelta.Core.dll" Pack="true" PackagePath="analyzers/dotnet/cs/BlazorDelta.Core.dll" />
+		<None Include="../BlazorDelta.Attributes/bin/Release/netstandard2.0/BlazorDelta.Attributes.dll" Pack="true" PackagePath="analyzers/dotnet/cs/BlazorDelta.Attributes.dll" />
+	</ItemGroup>
+	<ItemGroup>
+	  <PackageReference Include="Microsoft.AspNetCore.Components" Version="9.0.0" />
 	</ItemGroup>
 
-	<!-- Custom target to include generator files in package -->
-	<Target Name="IncludeAnalyzers" BeforeTargets="GetTargetPath" DependsOnTargets="ResolveProjectReferences">
-		<ItemGroup>
-			<!-- Include the source generator -->
-			<None Include="@(ReferencePath)" Condition="'%(ReferencePath.MSBuildSourceProjectFile)' != '' AND '%(ReferencePath.Filename)' == 'BlazorDelta.Core'">
-				<Pack>true</Pack>
-				<PackagePath>analyzers/dotnet/cs/BlazorDelta.Core.dll</PackagePath>
-			</None>
-
-			<!-- Include the attributes -->
-			<None Include="@(ReferencePath)" Condition="'%(ReferencePath.MSBuildSourceProjectFile)' != '' AND '%(ReferencePath.Filename)' == 'BlazorDelta.Attributes'">
-				<Pack>true</Pack>
-				<PackagePath>analyzers/dotnet/cs/BlazorDelta.Attributes.dll</PackagePath>
-			</None>
-		</ItemGroup>
+	<!-- Build dependencies first -->
+	<Target Name="BuildDependencies" BeforeTargets="Pack">
+		<MSBuild Projects="../BlazorDelta.Attributes/BlazorDelta.Attributes.csproj" Properties="Configuration=Release" />
+		<MSBuild Projects="../BlazorDelta.Core/BlazorDelta.Core.csproj" Properties="Configuration=Release" />
+		<MSBuild Projects="../BlazorDelta.Abstractions/BlazorDelta.Abstractions.csproj" Properties="Configuration=Release" />
 	</Target>
 </Project>

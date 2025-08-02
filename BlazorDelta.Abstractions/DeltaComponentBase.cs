@@ -13,6 +13,7 @@ namespace BlazorDelta.Abstractions;
 public abstract class DeltaComponentBase : IComponent, IHandleEvent, IHandleAfterRender
 {
     private readonly RenderFragment _renderFragment;
+    private (IComponentRenderMode? mode, bool cached) _renderMode;
     private readonly Queue<Func<Task>> _afterRenderQueue = new();
     private RenderHandle _renderHandle;
     private bool _hasNeverRendered = true;
@@ -39,10 +40,44 @@ public abstract class DeltaComponentBase : IComponent, IHandleEvent, IHandleAfte
     }
 
     /// <summary>
+    /// Gets the <see cref="Components.RendererInfo"/> the component is running on.
+    /// </summary>
+    protected RendererInfo RendererInfo => _renderHandle.RendererInfo;
+
+    /// <summary>
+    /// Gets the <see cref="ResourceAssetCollection"/> for the application.
+    /// </summary>
+    protected ResourceAssetCollection Assets => _renderHandle.Assets;
+
+    /// <summary>
+    /// Gets the <see cref="IComponentRenderMode"/> assigned to this component.
+    /// </summary>
+    protected IComponentRenderMode? AssignedRenderMode
+    {
+        get
+        {
+            if (!_renderMode.cached)
+            {
+                _renderMode = (_renderHandle.RenderMode, true);
+            }
+
+            return _renderMode.mode;
+        }
+    }
+
+
+    /// <summary>
     /// Renders the component to the supplied <see cref="RenderTreeBuilder"/>.
     /// </summary>
     /// <param name="builder">A <see cref="RenderTreeBuilder"/> that will receive the render output.</param>
-    protected abstract void BuildRenderTree(RenderTreeBuilder builder);
+    protected virtual void BuildRenderTree(RenderTreeBuilder builder)
+    {
+        // Developers can either override this method in derived classes, or can use Razor
+        // syntax to define a derived class and have the compiler generate the method.
+
+        // Other code within this class should *not* invoke BuildRenderTree directly,
+        // but instead should invoke the _renderFragment field.
+    }
 
     /// <summary>
     /// Method invoked when the component is ready to start, having received its
@@ -179,7 +214,7 @@ public abstract class DeltaComponentBase : IComponent, IHandleEvent, IHandleAfte
     public virtual async Task SetParametersAsync(ParameterView parameters)
     {
         // Call the source-generated parameter setting method
-        SetParametersFromSource(parameters);
+        bool shouldRender = SetParametersFromSource(parameters);
 
         if (_hasNeverRendered)
         {
@@ -209,7 +244,7 @@ public abstract class DeltaComponentBase : IComponent, IHandleEvent, IHandleAfte
         OnParametersSet();
         var onParametersSetTask = OnParametersSetAsync();
 
-        var shouldRender = ShouldRender();
+        shouldRender = shouldRender && ShouldRender();
         if (shouldRender || _hasNeverRendered)
         {
             StateHasChanged();

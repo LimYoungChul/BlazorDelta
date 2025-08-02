@@ -11,4 +11,5 @@ public class ParameterInfo
     public bool HasUpdatesCss { get; set; }
     public bool CaptureUnmatchedValues { get; set; }
     public bool IsCascading { get; set; }
+    public string? EventType { get; set; } // NEW: Stores the event type (e.g., "oninput", "onchange")
 }

@@ -1,12 +1,15 @@
-﻿using BlazorDelta.Core.Models;
+﻿using BlazorDelta.Core.Helpers;
+using BlazorDelta.Core.Models;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace BlazorDelta.Core.Generators;
 
@@ -36,8 +39,8 @@ public class BlazorComponentGenerator : IIncrementalGenerator
             context.RegisterPostInitializationOutput(ctx =>
             {
                 var source = $@"
-// Source generator initialization failed: {ex.Message}
-// Stack trace: {ex.StackTrace}
+                    // Source generator initialization failed: {ex.Message}
+                    // Stack trace: {ex.StackTrace}
 ";
                 ctx.AddSource("SourceGeneratorError.cs", source);
             });
@@ -63,25 +66,6 @@ public class BlazorComponentGenerator : IIncrementalGenerator
             if (context.Node is not ClassDeclarationSyntax classDeclaration)
                 return null;
 
-            // Check if it has a base list
-            if (classDeclaration.BaseList?.Types == null)
-                return null;
-
-            // More defensive check for base types
-            var hasGeneratedComponentBase = false;
-            foreach (var baseType in classDeclaration.BaseList.Types)
-            {
-                var typeText = baseType.Type?.ToString();
-                if (!string.IsNullOrEmpty(typeText) && typeText!.Contains("DeltaComponentBase"))
-                {
-                    hasGeneratedComponentBase = true;
-                    break;
-                }
-            }
-
-            if (!hasGeneratedComponentBase)
-                return null;
-
             // Check if it's partial (safer way)
             var isPartial = false;
             foreach (var modifier in classDeclaration.Modifiers)
@@ -92,11 +76,21 @@ public class BlazorComponentGenerator : IIncrementalGenerator
                     break;
                 }
             }
-
             if (!isPartial)
                 return null;
 
-            return classDeclaration;
+            // Use semantic model to check inheritance hierarchy
+            var semanticModel = context.SemanticModel;
+            var classSymbol = semanticModel.GetDeclaredSymbol(classDeclaration) as INamedTypeSymbol;
+
+            if (classSymbol == null)
+                return null;
+
+            // Check if class inherits from DeltaComponentBase anywhere in the hierarchy
+            if (Helper.InheritsFromDeltaComponentBase(classSymbol))
+                return classDeclaration;
+
+            return null;
         }
         catch
         {
@@ -143,7 +137,7 @@ public class BlazorComponentGenerator : IIncrementalGenerator
             }
 
             // Verify this actually inherits from DeltaComponentBase
-            if (!InheritsFromGeneratedComponentBase(classSymbol))
+            if (!Helper.InheritsFromDeltaComponentBase(classSymbol))
                 continue;
 
             try
@@ -152,7 +146,7 @@ public class BlazorComponentGenerator : IIncrementalGenerator
                 var source = GenerateSource(componentInfo);
 
                 // Use a different suffix to avoid Razor compiler conflicts
-                var fileName = $"{classSymbol.ContainingNamespace?.ToDisplayString().Replace(".", "_")}_{classSymbol.Name}.Generated.cs";
+                var fileName = $"{classSymbol.Name}.g.cs";
                 context.AddSource(fileName, source);
 
                 // Add diagnostic to see what's being generated
@@ -171,33 +165,21 @@ public class BlazorComponentGenerator : IIncrementalGenerator
             }
             catch (Exception ex)
             {
-            // Add diagnostic for debugging
-            var descriptor = new DiagnosticDescriptor(
-                "BSG001",
-                "Source generation error",
-                "Error generating source for {0}: {1}",
-                "BlazorDelta",
-                DiagnosticSeverity.Error,
-                isEnabledByDefault: true);
+                // Add diagnostic for debugging
+                var descriptor = new DiagnosticDescriptor(
+                    "BSG001",
+                    "Source generation error",
+                    "Error generating source for {0}: {1}",
+                    "BlazorDelta",
+                    DiagnosticSeverity.Error,
+                    isEnabledByDefault: true);
 
-            context.ReportDiagnostic(Diagnostic.Create(descriptor,
-                classDeclaration.GetLocation(),
-                classSymbol.Name,
-                ex.Message));
+                context.ReportDiagnostic(Diagnostic.Create(descriptor,
+                    classDeclaration.GetLocation(),
+                    classSymbol.Name,
+                    ex.Message));
+            }
         }
-    }
-    }
-
-    private static bool InheritsFromGeneratedComponentBase(INamedTypeSymbol classSymbol)
-    {
-        var current = classSymbol.BaseType;
-        while (current != null)
-        {
-            if (current.Name == "DeltaComponentBase")
-                return true;
-            current = current.BaseType;
-        }
-        return false;
     }
 
     private static ComponentInfo AnalyzeComponent(INamedTypeSymbol classSymbol)
@@ -279,14 +261,55 @@ public class BlazorComponentGenerator : IIncrementalGenerator
             current = current.BaseType;
         }
 
+        var (className, constraintsText) = GenerateClassNameAndConstraints(classSymbol);
+
         return new ComponentInfo
         {
-            ClassName = classSymbol.Name,
+            ClassName = className,  // e.g., "FormComponent<T>"
+            ClassConstraints = constraintsText, // e.g., "where T : class"
             Namespace = classSymbol.ContainingNamespace.ToDisplayString(),
             Parameters = parameters,
             Handlers = handlers,
             CaptureUnmatchedValuesParameter = captureUnmatchedValuesParameter
         };
+    }
+
+    // Helper method that returns both class name with generics and constraints
+    private static (string className, string constraints) GenerateClassNameAndConstraints(INamedTypeSymbol classSymbol)
+    {
+        string className = classSymbol.Name;
+        string constraints = string.Empty;
+
+        if (classSymbol.IsGenericType)
+        {
+            var typeParams = string.Join(", ", classSymbol.TypeParameters.Select(tp => tp.Name));
+            className = $"{classSymbol.Name}<{typeParams}>";
+
+            // Generate constraints
+            var constraintsList = new List<string>();
+            foreach (var typeParam in classSymbol.TypeParameters)
+            {
+                var paramConstraints = new List<string>();
+
+                if (typeParam.HasValueTypeConstraint)
+                    paramConstraints.Add("struct");
+                if (typeParam.HasReferenceTypeConstraint)
+                    paramConstraints.Add("class");
+                if (typeParam.HasConstructorConstraint)
+                    paramConstraints.Add("new()");
+
+                foreach (var constraintType in typeParam.ConstraintTypes)
+                    paramConstraints.Add(constraintType.ToDisplayString());
+
+                if (paramConstraints.Any())
+                    constraintsList.Add($"where {typeParam.Name} : {string.Join(", ", paramConstraints)}");
+            }
+
+            if (constraintsList.Any())
+                constraints = string.Join("\n    ", constraintsList);
+        }
+
+        return (className, constraints);
     }
 
     private static bool HasAttribute(ISymbol symbol, string attributeName)
@@ -311,7 +334,14 @@ public class BlazorComponentGenerator : IIncrementalGenerator
         sb.AppendLine("using System.Collections.Generic;");
         sb.AppendLine($"namespace {componentInfo.Namespace};");
         sb.AppendLine();
+
         sb.AppendLine($"partial class {componentInfo.ClassName}");
+        if (!string.IsNullOrEmpty(componentInfo.ClassConstraints))
+        {
+            sb.Append($"    {componentInfo.ClassConstraints}");
+        }
+
+        sb.AppendLine();
         sb.AppendLine("{");
 
         GeneratePreviousValueFields(sb, componentInfo);
@@ -330,6 +360,11 @@ public class BlazorComponentGenerator : IIncrementalGenerator
             var fieldName = $"_hasSet{parameter.Name}";
             sb.AppendLine($"    private bool {fieldName};");
         }
+
+        if (HasBindingCapability(componentInfo))
+        {
+            sb.AppendLine("    private string? _currentEventType;");
+        }
     }
 
     private static void GenerateSetParametersFromSourceMethod(StringBuilder sb, ComponentInfo componentInfo)
@@ -337,7 +372,6 @@ public class BlazorComponentGenerator : IIncrementalGenerator
         sb.AppendLine("    public override bool SetParametersFromSource(Microsoft.AspNetCore.Components.ParameterView parameters)");
         sb.AppendLine("    {");
         sb.AppendLine("        var hasChanges = false;");
-        sb.AppendLine("        var cssNeedsUpdate = false;");
         sb.AppendLine();
         sb.AppendLine("        foreach (var parameter in parameters)");
         sb.AppendLine("        {");
@@ -349,24 +383,51 @@ public class BlazorComponentGenerator : IIncrementalGenerator
             GenerateParameterCase(sb, parameter, componentInfo.Handlers);
         }
 
-        // Generate default case for CaptureUnmatchedValues if present
+        // Generate default case - only check for event types if component has binding capability
+        sb.AppendLine("                default:");
+
+        bool hasBindingCapability = HasBindingCapability(componentInfo);
+
+        if (hasBindingCapability)
+        {
+            // First check for known event types (for @bind-x:event scenarios)
+            sb.AppendLine("                    // Check for known event types (for @bind-x:event scenarios)");
+            sb.AppendLine("                    if (BlazorDelta.Abstractions.Helpers.ParameterHelper.IsKnownEventType(parameter.Name))");
+            sb.AppendLine("                    {");
+            sb.AppendLine("                        // Cache the detected event type for binding");
+            sb.AppendLine("                        if (_currentEventType != parameter.Name)");
+            sb.AppendLine("                        {");
+            sb.AppendLine("                            _currentEventType = parameter.Name;");
+            sb.AppendLine("                            hasChanges = true;");
+            sb.AppendLine("                        }");
+            sb.AppendLine("                        break;");
+            sb.AppendLine("                    }");
+            sb.AppendLine();
+        }
+
+        // Then handle CaptureUnmatchedValues for non-event parameters
         if (componentInfo.CaptureUnmatchedValuesParameter != null)
         {
-            GenerateUnmatchedValuesCase(sb, componentInfo.CaptureUnmatchedValuesParameter);
+            if (hasBindingCapability)
+            {
+                sb.AppendLine("                    // Handle CaptureUnmatchedValues - only for HTML attribute-safe types");
+            }
+            else
+            {
+                sb.AppendLine("                    // Handle CaptureUnmatchedValues - only for HTML attribute-safe types");
+            }
+            GenerateUnmatchedValuesLogic(sb, componentInfo.CaptureUnmatchedValuesParameter);
         }
+
+        sb.AppendLine("                    break;");
 
         sb.AppendLine("            }");
         sb.AppendLine("        }");
         sb.AppendLine();
-        sb.AppendLine("        if (cssNeedsUpdate)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            UpdateCssClasses();");
-        sb.AppendLine("        }");
         sb.AppendLine();
         sb.AppendLine("        return hasChanges;");
         sb.AppendLine("    }");
     }
-
     private static void GenerateParameterCase(StringBuilder sb, ParameterInfo parameter, List<HandlerInfo> handlers)
     {
         sb.AppendLine($"                case \"{parameter.Name}\":");
@@ -377,15 +438,14 @@ public class BlazorComponentGenerator : IIncrementalGenerator
             sb.AppendLine("                    // Cascading parameter");
         }
 
-        var typeDisplayString = GetTypeDisplayString(parameter.Type);
+        var typeDisplayString = GetTypeDisplayStringCore(parameter.Type);
         var comparisonStrategy = GetComparisonStrategy(parameter.Type);
         var handler = handlers.FirstOrDefault(h => h.ParameterName == parameter.Name);
 
-        sb.AppendLine($"                    var new{parameter.Name} = ({typeDisplayString})parameter.Value;");
-
         if (parameter.HasSetOnce)
         {
-            // SetOnce logic
+            // SetOnce logic with casting for performance
+            sb.AppendLine($"                    var new{parameter.Name} = ({typeDisplayString})parameter.Value;");
             sb.AppendLine($"                    if (!_hasSet{parameter.Name})");
             sb.AppendLine("                    {");
             sb.AppendLine($"                        {parameter.Name} = new{parameter.Name};");
@@ -398,7 +458,7 @@ public class BlazorComponentGenerator : IIncrementalGenerator
 
             if (parameter.HasUpdatesCss)
             {
-                sb.AppendLine("                        cssNeedsUpdate = true;");
+                sb.AppendLine("                        DirtyCss = true;");
             }
 
             if (handler != null)
@@ -417,18 +477,21 @@ public class BlazorComponentGenerator : IIncrementalGenerator
         }
         else
         {
-            // Normal parameter logic with comparison
-            string comparisonCode = comparisonStrategy switch
+            // Normal parameter logic - use casting for performance
+            string? comparisonCode = comparisonStrategy switch
             {
                 ComparisonStrategy.Value => $"{parameter.Name} != new{parameter.Name}",
                 ComparisonStrategy.Reference => $"!ReferenceEquals({parameter.Name}, new{parameter.Name})",
-                ComparisonStrategy.Generic => $"!EqualityComparer<{GetTypeDisplayString(parameter.Type)}>.Default.Equals({parameter.Name}, new{parameter.Name})",
+                ComparisonStrategy.Generic => $"!EqualityComparer<{GetTypeDisplayStringCore(parameter.Type)}>.Default.Equals({parameter.Name}, new{parameter.Name})",
                 ComparisonStrategy.EventCallback => $"!{parameter.Name}.Equals(new{parameter.Name})",
-                ComparisonStrategy.Never => "true", // Always assign for EventCallback, etc.
+                ComparisonStrategy.Never => null, // Always assign, no comparison needed
                 _ => $"{parameter.Name} != new{parameter.Name}"
             };
 
-            if (comparisonStrategy != ComparisonStrategy.Never)
+            // Use direct casting - more performant than pattern matching for nullable value types
+            sb.AppendLine($"                    var new{parameter.Name} = ({typeDisplayString})parameter.Value;");
+
+            if (comparisonCode != null)
             {
                 sb.AppendLine($"                    if ({comparisonCode})");
                 sb.AppendLine("                    {");
@@ -443,7 +506,7 @@ public class BlazorComponentGenerator : IIncrementalGenerator
 
             if (parameter.HasUpdatesCss)
             {
-                sb.AppendLine("                        cssNeedsUpdate = true;");
+                sb.AppendLine("                        DirtyCss = true;");
             }
 
             if (handler != null)
@@ -458,7 +521,7 @@ public class BlazorComponentGenerator : IIncrementalGenerator
                 }
             }
 
-            if (comparisonStrategy != ComparisonStrategy.Never)
+            if (comparisonCode != null)
             {
                 sb.AppendLine("                    }");
             }
@@ -468,69 +531,69 @@ public class BlazorComponentGenerator : IIncrementalGenerator
         sb.AppendLine();
     }
 
-    private static void GenerateUnmatchedValuesCase(StringBuilder sb, ParameterInfo unmatchedParameter)
+    private static void GenerateUnmatchedValuesLogic(StringBuilder sb, ParameterInfo unmatchedParameter)
     {
-        sb.AppendLine("                default:");
-        sb.AppendLine("                    // Handle CaptureUnmatchedValues");
-        sb.AppendLine($"                    if ({unmatchedParameter.Name} == null)");
+        sb.AppendLine("                    if (BlazorDelta.Abstractions.Helpers.ParameterHelper.IsHtmlAttributeSafeType(parameter.Value))");
         sb.AppendLine("                    {");
-        sb.AppendLine($"                        {unmatchedParameter.Name} = new Dictionary<string, object>();");
-        sb.AppendLine("                        hasChanges = true;");
-        sb.AppendLine("                    }");
-        sb.AppendLine();
-        sb.AppendLine($"                    if ({unmatchedParameter.Name}.TryGetValue(parameter.Name, out var existingValue))");
-        sb.AppendLine("                    {");
-        sb.AppendLine("                        if (!Equals(parameter.Value, existingValue))");
+        sb.AppendLine($"                        if ({unmatchedParameter.Name} == null)");
         sb.AppendLine("                        {");
+        sb.AppendLine($"                            {unmatchedParameter.Name} = new Dictionary<string, object>();");
+        sb.AppendLine("                            hasChanges = true;");
+        sb.AppendLine("                        }");
+        sb.AppendLine();
+        sb.AppendLine($"                        if ({unmatchedParameter.Name}.TryGetValue(parameter.Name, out var existingValue))");
+        sb.AppendLine("                        {");
+        sb.AppendLine("                            if (!Equals(parameter.Value, existingValue))");
+        sb.AppendLine("                            {");
 
         // Check if it's a readonly interface vs mutable dictionary
         var typeString = unmatchedParameter.Type.ToDisplayString();
         if (typeString.Contains("IReadOnlyDictionary"))
         {
             // Immutable pattern for IReadOnlyDictionary
+            sb.AppendLine($"                                var newDict = new Dictionary<string, object?>({unmatchedParameter.Name});");
+            sb.AppendLine("                                newDict[parameter.Name] = parameter.Value;");
+            sb.AppendLine($"                                {unmatchedParameter.Name} = newDict;");
+        }
+        else
+        {
+            // Direct mutation for Dictionary
+            sb.AppendLine($"                                {unmatchedParameter.Name}[parameter.Name] = parameter.Value;");
+        }
+
+        sb.AppendLine("                                hasChanges = true;");
+        sb.AppendLine("                                // Special case: class attribute affects CSS");
+        sb.AppendLine("                                if (parameter.Name == \"class\")");
+        sb.AppendLine("                                {");
+        sb.AppendLine("                                    DirtyCss = true;");
+        sb.AppendLine("                                }");
+        sb.AppendLine("                            }");
+        sb.AppendLine("                        }");
+        sb.AppendLine("                        else");
+        sb.AppendLine("                        {");
+
+        if (typeString.Contains("IReadOnlyDictionary"))
+        {
+            // Immutable pattern for IReadOnlyDictionary
             sb.AppendLine($"                            var newDict = new Dictionary<string, object?>({unmatchedParameter.Name});");
-            sb.AppendLine("                            newDict[parameter.Name] = parameter.Value;");
+            sb.AppendLine("                            newDict.Add(parameter.Name, parameter.Value);");
             sb.AppendLine($"                            {unmatchedParameter.Name} = newDict;");
         }
         else
         {
             // Direct mutation for Dictionary
-            sb.AppendLine($"                            {unmatchedParameter.Name}[parameter.Name] = parameter.Value;");
+            sb.AppendLine($"                            {unmatchedParameter.Name}.Add(parameter.Name, parameter.Value);");
         }
 
         sb.AppendLine("                            hasChanges = true;");
         sb.AppendLine("                            // Special case: class attribute affects CSS");
         sb.AppendLine("                            if (parameter.Name == \"class\")");
         sb.AppendLine("                            {");
-        sb.AppendLine("                                cssNeedsUpdate = true;");
+        sb.AppendLine("                                DirtyCss = true;");
         sb.AppendLine("                            }");
         sb.AppendLine("                        }");
         sb.AppendLine("                    }");
-        sb.AppendLine("                    else");
-        sb.AppendLine("                    {");
-
-        if (typeString.Contains("IReadOnlyDictionary"))
-        {
-            // Immutable pattern for IReadOnlyDictionary
-            sb.AppendLine($"                        var newDict = new Dictionary<string, object?>({unmatchedParameter.Name});");
-            sb.AppendLine("                        newDict.Add(parameter.Name, parameter.Value);");
-            sb.AppendLine($"                        {unmatchedParameter.Name} = newDict;");
-        }
-        else
-        {
-            // Direct mutation for Dictionary
-            sb.AppendLine($"                        {unmatchedParameter.Name}.Add(parameter.Name, parameter.Value);");
-        }
-
-        sb.AppendLine("                        hasChanges = true;");
-        sb.AppendLine("                        // Special case: class attribute affects CSS");
-        sb.AppendLine("                        if (parameter.Name == \"class\")");
-        sb.AppendLine("                        {");
-        sb.AppendLine("                            cssNeedsUpdate = true;");
-        sb.AppendLine("                        }");
-        sb.AppendLine("                    }");
-        sb.AppendLine("                    break;");
-        sb.AppendLine();
+        sb.AppendLine("                    // Non-HTML-safe types (EventCallback, complex objects, etc.) are ignored");
     }
 
     private static ComparisonStrategy GetComparisonStrategy(ITypeSymbol type)
@@ -581,39 +644,125 @@ public class BlazorComponentGenerator : IIncrementalGenerator
         return ComparisonStrategy.Value;
     }
 
-    private static string GetTypeDisplayString(ITypeSymbol type)
+    // Add this new helper method for pattern matching type strings
+    private static string GetPatternMatchingTypeString(ITypeSymbol type)
     {
+        // For nullable value types (int?, bool?, etc.), we need special handling
+        // because they box as either the underlying type or null, never as Nullable<T>
+        if (type.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
+        {
+            var underlyingType = ((INamedTypeSymbol)type).TypeArguments[0];
+            return GetTypeDisplayStringCore(underlyingType); // Return int instead of int?
+        }
+
+        if (type.TypeKind == TypeKind.TypeParameter)
+        {
+            return type.Name;
+        }
+
+        // For generic types (like EventCallback<string?>), preserve the exact generic arguments
+        if (type is INamedTypeSymbol namedType && namedType.IsGenericType)
+        {
+            return GetTypeDisplayStringCore(type); // Keep exact generic arguments
+        }
+
+        // For simple nullable reference types (like string?), use non-nullable for pattern matching
+        if (type.NullableAnnotation == NullableAnnotation.Annotated && !type.IsValueType)
+        {
+            var nonNullableType = type.WithNullableAnnotation(NullableAnnotation.NotAnnotated);
+            return GetTypeDisplayStringCore(nonNullableType);
+        }
+
+        return GetTypeDisplayStringCore(type);
+    }
+
+
+    // Also update the GetTypeDisplayString method to use this core version
+    private static string GetTypeDisplayStringCore(ITypeSymbol type)
+    {
+        // Handle nullable value types with shorthand syntax (int? instead of System.Nullable<int>)
+        if (type.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
+        {
+            var underlyingType = ((INamedTypeSymbol)type).TypeArguments[0];
+            var underlyingTypeName = GetTypeDisplayStringCore(underlyingType);
+            return $"{underlyingTypeName}?";
+        }
+
         // For generic type parameters, just use the simple name
         if (type.TypeKind == TypeKind.TypeParameter)
         {
             return type.Name;
         }
 
-        // For generic types containing type parameters, use minimal display
+        // For generic types containing type parameters, handle carefully and preserve nullability
         if (type is INamedTypeSymbol namedType && namedType.IsGenericType)
         {
             var typeArguments = namedType.TypeArguments;
 
-            if (typeArguments.Any(ta => ta.TypeKind == TypeKind.TypeParameter))
+            // Get the base type name without generic arguments
+            var baseTypeName = namedType.ConstructedFrom.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+            // Clean up global:: prefix
+            if (baseTypeName.StartsWith("global::"))
             {
-                // Build the generic type string manually for better control
-                var args = string.Join(", ", typeArguments.Select(GetTypeDisplayString));
-                var name = namedType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
-
-                // Remove the type arguments and add our own
-                var openBracket = name.IndexOf('<');
-                if (openBracket >= 0)
-                {
-                    name = name.Substring(0, openBracket);
-                }
-
-                return $"{name}<{args}>";
+                baseTypeName = baseTypeName.Substring(8);
             }
+
+            // Remove existing type arguments
+            var openBracket = baseTypeName.IndexOf('<');
+            if (openBracket >= 0)
+            {
+                baseTypeName = baseTypeName.Substring(0, openBracket);
+            }
+
+            // Build type arguments - GetTypeDisplayStringCore already handles nullability
+            var args = string.Join(", ", typeArguments.Select(GetTypeDisplayStringCore));
+
+            return $"{baseTypeName}<{args}>";
         }
 
-        // Default to the standard display string
-        return type.ToDisplayString();
+        // Use built-in display format that preserves nullability
+        var format = new SymbolDisplayFormat(
+            globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Omitted,
+            typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
+            genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters,
+            miscellaneousOptions: SymbolDisplayMiscellaneousOptions.EscapeKeywordIdentifiers |
+                                 SymbolDisplayMiscellaneousOptions.UseSpecialTypes |
+                                 SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier
+        );
+
+        var fullName = type.ToDisplayString(format);
+
+        // Clean up global:: prefix that sometimes appears
+        if (fullName.StartsWith("global::"))
+        {
+            fullName = fullName.Substring(8);
+        }
+
+        return fullName;
     }
+
+    private static bool HasBindingCapability(ComponentInfo componentInfo)
+    {
+        // Check if component has any X + XChanged pairs (binding capability)
+        var parameterNames = new HashSet<string>(componentInfo.Parameters.Select(p => p.Name));
+
+        return componentInfo.Parameters.Any(param =>
+        {
+            // Look for XChanged parameters that are EventCallback<T>
+            if (param.Name.EndsWith("Changed") &&
+                param.Type.Name.StartsWith("EventCallback"))
+            {
+                // Extract the base name (remove "Changed" suffix)
+                var baseName = param.Name.Substring(0, param.Name.Length - 7);
+
+                // Check if we have the corresponding value parameter
+                return parameterNames.Contains(baseName);
+            }
+            return false;
+        });
+    }
+
 
     private static bool IsCollectionType(ITypeSymbol type)
     {

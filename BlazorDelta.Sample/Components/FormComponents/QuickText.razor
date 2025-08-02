@@ -1,0 +1,9 @@
+﻿@using BlazorDelta.Sample.Components.BaseComponents
+
+@inherits FormComponent<string?>
+
+
+<input @attributes="AdditionalAttributes" id="@Id" type="text" class="@_cssClass" style="@Style" @bind-value="Value" @bind-value:event="oninput" />
+
+
+

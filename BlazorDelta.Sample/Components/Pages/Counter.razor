@@ -1,4 +1,6 @@
 ﻿@page "/counter"
+@using System.ComponentModel.DataAnnotations
+@using BlazorDelta.Sample.Components.UI
 @rendermode InteractiveServer
 
 <PageTitle>Counter</PageTitle>
@@ -9,11 +11,62 @@
 
 <button class="btn btn-primary" @onclick="IncrementCount">Click me</button>
 
+<EditForm EditContext="_editContext" OnValidSubmit="HandleValidSubmit">
+    <DataAnnotationsValidator/>
+
+
+    <BlazorDelta.Sample.Components.FormComponents.QuickText @bind-Value="_monkeyButt.SomeText"/>
+    <ValidationMessage For="() => _monkeyButt.SomeText" />
+
+
+    <BBButton Type="ButtonType.Submit" Text="Submit" />
+
+</EditForm>
+<div class="d-flex">
+
+</div>
+@foreach(var msg in _messages)
+{
+    <div style="border: 1px solid red; padding: 4ch; font-weight: 700; font-size: 18px">
+        @msg
+    </div>
+}
+
+
 @code {
     private int currentCount = 0;
 
+    private int _number = 600;
+
+    private List<string> _messages = new();
+
     private void IncrementCount()
     {
-        currentCount++;
+        _number++;
     }
+
+    private MonkeyButt _monkeyButt = null!;
+    private EditContext _editContext = null!;
+
+    protected override void OnInitialized()
+    {
+        _monkeyButt = new();
+        _editContext = new(_monkeyButt);
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        await Task.Delay(2000);
+        _messages.Add($"You are the {_number}nd biggest monkey butt");
+
+    }
+
+    private class MonkeyButt
+    {
+        [Required]
+        public string? SomeText { get; set; }
+    }
+
+
+
 }
